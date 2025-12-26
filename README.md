@@ -115,9 +115,17 @@ ros2 run demo_nodes_cpp talker
 ### 4. Run RViz (GUI Test)
 
 ```bash
-# Inside the container
+# Option 1: Enter the container first, then run rviz2
+docker exec -it ros2_jazzy_dev bash
 rviz2
+
+# Option 2: Run directly with environment sourced
+docker exec -it ros2_jazzy_dev bash -c "source /opt/ros/jazzy/setup.bash && rviz2"
 ```
+
+> **Note:** Running `docker exec -it ros2_jazzy_dev rviz2` directly will fail with
+> `executable file not found in $PATH` because the ROS2 environment is only sourced
+> by the entrypoint when starting the container, not when using `docker exec`.
 
 ---
 
@@ -539,6 +547,7 @@ rm -rf build/ install/ log/ && colcon build
 | Issue | Solution |
 |-------|----------|
 | `ros2: command not found` | Run `source /opt/ros/jazzy/setup.bash` |
+| `executable file not found in $PATH` when using `docker exec` | Use `docker exec -it container bash` first, or `docker exec -it container bash -c "source /opt/ros/jazzy/setup.bash && command"` |
 | Nodes can't find each other | Ensure same `ROS_DOMAIN_ID` and network mode |
 | Package not found after build | Run `source /ros2_ws/install/setup.bash` |
 | `rosdep install` fails | Run `rosdep update` first |
