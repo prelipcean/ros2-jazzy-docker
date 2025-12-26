@@ -1,52 +1,169 @@
+#===============================================================================
+#                    ROS2 Jazzy Docker Compose Configuration
+#===============================================================================
+#
+# This file defines three services for different use cases:
+#
+#   1. ros2-jazzy        - Full development with GUI support (RViz, Gazebo)
+#   2. ros2-jazzy-vscode - Remote development via browser-based VS Code
+#   3. ros2-jazzy-base   - Minimal headless environment for CI/CD or servers
+#
+# Quick Start:
+#   # Allow GUI access (run once after each reboot)
+#   xhost +local:docker
+#
+#   # Start development environment
+#   docker compose up -d ros2-jazzy
+#   docker exec -it ros2_jazzy_dev bash
+#
+# See README.md for detailed documentation.
+#
+#===============================================================================
+
 services:
+  #=============================================================================
+  # ROS2 Jazzy - Full Desktop with GUI Support
+  #=============================================================================
+  # Use this for development with RViz, Gazebo, and other GUI tools.
+  # 
+  # Features:
+  #   - Full ROS2 desktop installation
+  #   - X11/XWayland display forwarding for GUI apps
+  #   - GPU acceleration via /dev/dri
+  #   - Host networking for DDS discovery
+  #
+  # Usage:
+  #   docker compose up -d ros2-jazzy
+  #   docker exec -it ros2_jazzy_dev bash
+  #   rviz2
+  #
   ros2-jazzy:
+    # Build configuration
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: .                        # Build context (current directory)
+      dockerfile: Dockerfile            # Dockerfile to use
       args:
-        ROS_INSTALL_TYPE: desktop
-        PASSWORD: temppwd
+        ROS_INSTALL_TYPE: desktop       # Full installation with GUI tools
+        PASSWORD: temppwd               # Root password for SSH
+
+    # Image name after build
     image: ros2:jazzy-dev
-    container_name: ros2_jazzy_dev
-    hostname: ros2-dev
-    
-    # Use host network for ROS2 DDS discovery
+
+    # Container identification
+    container_name: ros2_jazzy_dev      # Fixed name for easy reference
+    hostname: ros2-dev                  # Hostname inside container
+
+    #---------------------------------------------------------------------------
+    # Networking
+    #---------------------------------------------------------------------------
+    # Host network mode shares the host's network stack with the container.
+    # This is required for ROS2 DDS discovery to work properly across machines.
+    # 
+    # Pros:
+    #   - ROS2 nodes can communicate with nodes on other machines
+    #   - No port mapping needed
+    #   - Better network performance
+    #
+    # Cons:
+    #   - Container shares host's IP address
+    #   - Port conflicts if running multiple containers
     network_mode: host
-    
-    # Keep container running interactively
-    stdin_open: true
-    tty: true
-    
-    # Environment variables
+
+    #---------------------------------------------------------------------------
+    # Interactive Mode
+    #---------------------------------------------------------------------------
+    # These settings keep the container running with an interactive terminal
+    stdin_open: true                    # Keep STDIN open (docker run -i)
+    tty: true                           # Allocate pseudo-TTY (docker run -t)
+
+    #---------------------------------------------------------------------------
+    # Environment Variables
+    #---------------------------------------------------------------------------
     environment:
-      # Display settings for GUI applications (XWayland)
+      #--- Display Settings (for GUI applications) ---
+      # DISPLAY: X11 display to use
+      #   :0 = First display (typical for X11 sessions)
+      #   :1 = Second display (typical for XWayland on Wayland sessions)
+      # Check your display: echo $DISPLAY
       - DISPLAY=${DISPLAY:-:1}
-      # Wayland (optional, most ROS2 GUI apps use X11/XWayland)
+      
+      # WAYLAND_DISPLAY: Wayland display socket name (optional)
+      # Most ROS2 apps use X11 via XWayland, so this is usually not needed
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
+      
+      # XDG_RUNTIME_DIR: Directory for runtime files
+      # Set to /tmp inside container since we don't mount host's runtime dir
       - XDG_RUNTIME_DIR=/tmp
-      # ROS2 settings
+
+      #--- ROS2 Settings ---
+      # ROS_DOMAIN_ID: Isolate ROS2 networks (0-232)
+      # Robots on the same domain can communicate
+      # Use different domain IDs to separate robot groups
       - ROS_DOMAIN_ID=0
+      
+      # ROS_LOCALHOST_ONLY: Restrict communication to localhost
+      # 0 = Allow network communication (needed for multi-machine)
+      # 1 = Localhost only (more secure for single-machine)
       - ROS_LOCALHOST_ONLY=0
-      # Optional services
+
+      #--- Optional Services ---
+      # START_SSH: Start SSH server on container start
+      # Set to "true" to enable SSH access (port 22)
       - START_SSH=false
+      
+      # START_CODE_SERVER: Start VS Code Server on container start
+      # Set to "true" to enable browser IDE at http://localhost:8800
       - START_CODE_SERVER=false
-    
-    # Volumes
+
+    #---------------------------------------------------------------------------
+    # Volume Mounts
+    #---------------------------------------------------------------------------
     volumes:
-      # ROS2 workspace
+      #--- ROS2 Workspace ---
+      # Mount local workspace directory to container's src folder
+      # Put your ROS2 packages in ./workspace/ and they'll appear in /ros2_ws/src/
       - ./workspace:/ros2_ws/src
-      # X11 socket for GUI applications (XWayland)
+
+      #--- X11 Display Socket ---
+      # Required for GUI applications to display on host's X server
+      # The X11 socket is how applications communicate with the display server
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # For GPU acceleration
+
+      #--- GPU Access ---
+      # Mount GPU device for hardware-accelerated rendering
+      # Required for smooth RViz and Gazebo performance
+      # Works with Intel, AMD (Mesa drivers), and some NVIDIA setups
       - /dev/dri:/dev/dri
-    
-    # Privileged mode (optional, needed for some hardware access)
+
+    #---------------------------------------------------------------------------
+    # Privileged Mode (Optional)
+    #---------------------------------------------------------------------------
+    # Uncomment for full hardware access (USB devices, serial ports, etc.)
+    # WARNING: This gives the container elevated privileges!
     # privileged: true
-    
-    # Restart policy
+
+    #---------------------------------------------------------------------------
+    # Restart Policy
+    #---------------------------------------------------------------------------
+    # unless-stopped: Restart automatically unless manually stopped
+    # Other options: no, always, on-failure
     restart: unless-stopped
 
-  # Alternative: ROS2 with code-server enabled
+  #=============================================================================
+  # ROS2 Jazzy - VS Code Server (Browser-based IDE)
+  #=============================================================================
+  # Use this for remote development via web browser.
+  #
+  # Features:
+  #   - VS Code Server accessible at http://localhost:8800
+  #   - SSH access on port 2222
+  #   - C++, CMake, and Hex Editor extensions pre-installed
+  #
+  # Usage:
+  #   docker compose up -d ros2-jazzy-vscode
+  #   # Open http://localhost:8800 in your browser
+  #   # SSH: ssh root@localhost -p 2222
+  #
   ros2-jazzy-vscode:
     build:
       context: .
@@ -56,43 +173,97 @@ services:
     image: ros2:jazzy-dev
     container_name: ros2_jazzy_vscode
     hostname: ros2-vscode
-    
-    # Expose ports instead of host network
+
+    #---------------------------------------------------------------------------
+    # Port Mappings
+    #---------------------------------------------------------------------------
+    # Using port mappings instead of host network
+    # This allows running alongside ros2-jazzy without conflicts
     ports:
-      - "8800:8800"  # VS Code Server
-      - "2222:22"    # SSH (mapped to 2222 to avoid conflicts)
-    
+      - "8800:8800"                     # VS Code Server web interface
+      - "2222:22"                       # SSH (mapped to 2222 to avoid conflicts)
+
     stdin_open: true
     tty: true
-    
+
     environment:
       - DISPLAY=${DISPLAY:-:1}
       - XDG_RUNTIME_DIR=/tmp
       - ROS_DOMAIN_ID=0
+      # Enable both SSH and VS Code Server
       - START_SSH=true
       - START_CODE_SERVER=true
-    
+
     volumes:
       - ./workspace:/ros2_ws/src
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /dev/dri:/dev/dri
 
-  # Minimal ROS2 base (no GUI)
+    restart: unless-stopped
+
+  #=============================================================================
+  # ROS2 Jazzy - Minimal Base (Headless)
+  #=============================================================================
+  # Use this for:
+  #   - CI/CD pipelines
+  #   - Headless robot computers
+  #   - Running ROS2 nodes without GUI
+  #   - Smaller image size
+  #
+  # Features:
+  #   - Minimal ROS2 ros-base installation
+  #   - No GUI packages (smaller image)
+  #   - Host networking for DDS
+  #
+  # Usage:
+  #   docker compose up -d ros2-jazzy-base
+  #   docker exec -it ros2_jazzy_base bash
+  #   ros2 run my_package my_node
+  #
   ros2-jazzy-base:
     build:
       context: .
       dockerfile: Dockerfile
       args:
+        # Use ros-base for smaller image (~500MB vs ~2GB for desktop)
         ROS_INSTALL_TYPE: ros-base
     image: ros2:jazzy-base
     container_name: ros2_jazzy_base
     hostname: ros2-base
+    
+    # Host network for ROS2 DDS discovery
     network_mode: host
+    
     stdin_open: true
     tty: true
-    
+
     environment:
+      # Only ROS2 settings needed (no display)
       - ROS_DOMAIN_ID=0
-    
+
     volumes:
+      # Mount workspace for your packages
       - ./workspace:/ros2_ws/src
+
+    restart: unless-stopped
+
+#===============================================================================
+# NETWORKS (Optional - uncomment if not using host network)
+#===============================================================================
+# Uncomment this section if you need custom networking instead of host mode
+#
+# networks:
+#   ros2_network:
+#     driver: bridge
+#     ipam:
+#       config:
+#         - subnet: 172.28.0.0/16
+
+#===============================================================================
+# VOLUMES (Optional - for persistent data)
+#===============================================================================
+# Uncomment to create named volumes for data persistence
+#
+# volumes:
+#   ros2_ws_data:
+#     driver: local
