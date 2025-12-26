@@ -1,0 +1,95 @@
+version: "3.8"
+
+services:
+  ros2-jazzy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROS_INSTALL_TYPE: desktop
+        PASSWORD: temppwd
+    image: ros2:jazzy-dev
+    container_name: ros2_jazzy_dev
+    hostname: ros2-dev
+    
+    # Use host network for ROS2 DDS discovery
+    network_mode: host
+    
+    # Keep container running interactively
+    stdin_open: true
+    tty: true
+    
+    # Environment variables
+    environment:
+      # Display settings for GUI applications (X11)
+      - DISPLAY=${DISPLAY}
+      # ROS2 settings
+      - ROS_DOMAIN_ID=0
+      - ROS_LOCALHOST_ONLY=0
+      # Optional services
+      - START_SSH=false
+      - START_CODE_SERVER=false
+    
+    # Volumes
+    volumes:
+      # ROS2 workspace
+      - ./workspace:/ros2_ws/src
+      # X11 socket for GUI applications
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # For GPU acceleration (if needed)
+      - /dev/dri:/dev/dri
+    
+    # Privileged mode (optional, needed for some hardware access)
+    # privileged: true
+    
+    # Restart policy
+    restart: unless-stopped
+
+  # Alternative: ROS2 with code-server enabled
+  ros2-jazzy-vscode:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROS_INSTALL_TYPE: desktop
+    image: ros2:jazzy-dev
+    container_name: ros2_jazzy_vscode
+    hostname: ros2-vscode
+    
+    # Expose ports instead of host network
+    ports:
+      - "8800:8800"  # VS Code Server
+      - "2222:22"    # SSH (mapped to 2222 to avoid conflicts)
+    
+    stdin_open: true
+    tty: true
+    
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=0
+      - START_SSH=true
+      - START_CODE_SERVER=true
+    
+    volumes:
+      - ./workspace:/ros2_ws/src
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+  # Minimal ROS2 base (no GUI)
+  ros2-jazzy-base:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROS_INSTALL_TYPE: ros-base
+    image: ros2:jazzy-base
+    container_name: ros2_jazzy_base
+    hostname: ros2-base
+    network_mode: host
+    stdin_open: true
+    tty: true
+    
+    environment:
+      - ROS_DOMAIN_ID=0
+    
+    volumes:
+      - ./workspace:/ros2_ws/src

@@ -9,8 +9,31 @@ A Docker image for ROS2 Jazzy development based on Ubuntu Noble (24.04).
 - **VS Code Server** - Browser-based IDE with C++, CMake, and Hex Editor extensions
 - **SSH Server** - Remote access capability
 - **Multi-architecture** - Supports both `amd64` and `arm64`
+- **GUI Support** - X11 display forwarding for RViz and other GUI tools
 
 ## Quick Start
+
+### Using Docker Compose (Recommended)
+
+```bash
+# Build and run with GUI support
+docker compose up ros2-jazzy
+
+# Build and run with VS Code Server
+docker compose up ros2-jazzy-vscode
+
+# Build and run minimal base (no GUI)
+docker compose up ros2-jazzy-base
+
+# Run in detached mode
+docker compose up -d ros2-jazzy
+
+# Enter running container
+docker exec -it ros2_jazzy_dev bash
+
+# Stop containers
+docker compose down
+```
 
 ### Build the Image
 
@@ -100,6 +123,101 @@ ros2 run demo_nodes_cpp talker
 
 # In another terminal, run listener
 ros2 run demo_nodes_py listener
+```
+
+## GUI Applications (RViz, Gazebo, etc.)
+
+To run GUI applications like RViz from the container, you need to configure display forwarding.
+
+### Check Your Display Settings
+
+First, determine your display server type on the host:
+
+```bash
+# Check session type (x11 or wayland)
+echo $XDG_SESSION_TYPE
+
+# Check display variable
+echo $DISPLAY
+```
+
+### X11 Display Forwarding
+
+For X11 sessions (most common):
+
+```bash
+# Allow Docker to access X server
+xhost +local:docker
+
+# Run container with X11 forwarding
+docker run --rm -it \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+    -v /dev/dri:/dev/dri \
+    --network host \
+    ros2:jazzy-dev
+
+# Test GUI inside container
+rviz2
+```
+
+### Wayland Display Forwarding
+
+For Wayland sessions:
+
+```bash
+# Run container with Wayland support
+docker run --rm -it \
+    -e DISPLAY=$DISPLAY \
+    -e WAYLAND_DISPLAY=$WAYLAND_DISPLAY \
+    -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR \
+    -v $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:rw \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+    -v /dev/dri:/dev/dri \
+    --network host \
+    ros2:jazzy-dev
+```
+
+### Using Docker Compose with GUI
+
+The `docker-compose.yaml` is pre-configured for X11. Just run:
+
+```bash
+# Allow X server access
+xhost +local:docker
+
+# Start the container
+docker compose up ros2-jazzy
+
+# In another terminal, enter the container
+docker exec -it ros2_jazzy_dev bash
+
+# Run RViz
+rviz2
+```
+
+### Troubleshooting GUI Issues
+
+| Issue | Solution |
+|-------|----------|
+| `cannot open display` | Run `xhost +local:docker` on host |
+| `No protocol specified` | Ensure DISPLAY variable is set correctly |
+| Black screen in RViz | Add `-v /dev/dri:/dev/dri` for GPU access |
+| Wayland not working | Try XWayland: set `DISPLAY=:0` |
+
+### GPU Acceleration (NVIDIA)
+
+For NVIDIA GPU support, use nvidia-container-toolkit:
+
+```bash
+# Install nvidia-container-toolkit first, then:
+docker run --rm -it \
+    --gpus all \
+    -e DISPLAY=$DISPLAY \
+    -e NVIDIA_DRIVER_CAPABILITIES=all \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+    --network host \
+    ros2:jazzy-dev
 ```
 
 ## License
