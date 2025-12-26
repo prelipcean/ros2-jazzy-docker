@@ -137,80 +137,175 @@ First, determine your display server type on the host:
 # Check session type (x11 or wayland)
 echo $XDG_SESSION_TYPE
 
-# Check display variable
+# Check display variable (usually :0 for X11, :1 for XWayland)
 echo $DISPLAY
+
+# Check if XWayland is running (for Wayland sessions)
+pgrep -a Xwayland
 ```
 
-### X11 Display Forwarding
+### Quick Start with Docker Compose
 
-For X11 sessions (most common):
+#### For Wayland (Hyprland, Sway, GNOME Wayland, KDE Wayland)
+
+Most Wayland compositors run XWayland for X11 app compatibility. ROS2 GUI apps use Qt which works great with XWayland.
 
 ```bash
-# Allow Docker to access X server
+# 1. Install xhost if not already installed
+# Arch Linux:
+sudo pacman -S xorg-xhost
+# Ubuntu/Debian:
+sudo apt install x11-xserver-utils
+# Fedora:
+sudo dnf install xorg-x11-server-utils
+
+# 2. Allow Docker to access X server (run after each reboot)
 xhost +local:docker
 
-# Run container with X11 forwarding
-docker run --rm -it \
-    -e DISPLAY=$DISPLAY \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-    -v /dev/dri:/dev/dri \
-    --network host \
-    ros2:jazzy-dev
+# 3. Start the container
+docker compose up -d ros2-jazzy
 
-# Test GUI inside container
+# 4. Enter the container and run RViz
+docker exec -it ros2_jazzy_dev bash
 rviz2
 ```
 
-### Wayland Display Forwarding
-
-For Wayland sessions:
+#### For X11 Sessions
 
 ```bash
-# Run container with Wayland support
-docker run --rm -it \
-    -e DISPLAY=$DISPLAY \
-    -e WAYLAND_DISPLAY=$WAYLAND_DISPLAY \
-    -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR \
-    -v $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:rw \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-    -v /dev/dri:/dev/dri \
-    --network host \
-    ros2:jazzy-dev
-```
-
-### Using Docker Compose with GUI
-
-The `docker-compose.yaml` is pre-configured for X11. Just run:
-
-```bash
-# Allow X server access
+# 1. Allow Docker to access X server
 xhost +local:docker
 
-# Start the container
-docker compose up ros2-jazzy
+# 2. Start the container
+docker compose up -d ros2-jazzy
 
-# In another terminal, enter the container
+# 3. Enter the container and run RViz
+docker exec -it ros2_jazzy_dev bash
+rviz2
+```
+
+### Persistent xhost Configuration
+
+To avoid running `xhost +local:docker` after every reboot:
+
+#### Hyprland (~/.config/hypr/hyprland.conf)
+```bash
+exec-once = xhost +local:docker
+```
+
+#### Sway (~/.config/sway/config)
+```bash
+exec xhost +local:docker
+```
+
+#### X11 (~/.xinitrc or ~/.xprofile)
+```bash
+xhost +local:docker
+```
+
+#### Systemd User Service
+```bash
+# Create ~/.config/systemd/user/xhost-docker.service
+[Unit]
+Description=Allow Docker access to X server
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/xhost +local:docker
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical-session.target
+
+# Enable it
+systemctl --user enable xhost-docker.service
+```
+
+### Docker Compose Services
+
+The `docker-compose.yaml` includes three pre-configured services:
+
+| Service | Description | Use Case |
+|---------|-------------|----------|
+| `ros2-jazzy` | Full desktop with GUI, host network | Development with RViz/Gazebo |
+| `ros2-jazzy-vscode` | With VS Code Server on port 8800 | Remote development via browser |
+| `ros2-jazzy-base` | Minimal ROS2 base, no GUI | Headless nodes, CI/CD |
+
+```bash
+# Run with GUI support (recommended for development)
+docker compose up -d ros2-jazzy
 docker exec -it ros2_jazzy_dev bash
 
-# Run RViz
-rviz2
+# Run with VS Code Server
+docker compose up -d ros2-jazzy-vscode
+# Open http://localhost:8800 in browser
+
+# Run minimal base
+docker compose up -d ros2-jazzy-base
+docker exec -it ros2_jazzy_base bash
+```
+
+### Manual Docker Run Commands
+
+#### Wayland/XWayland
+```bash
+xhost +local:docker
+
+docker run --rm -it \
+    --name ros2_dev \
+    --network host \
+    -e DISPLAY=${DISPLAY:-:1} \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+    -v /dev/dri:/dev/dri \
+    -v $(pwd)/workspace:/ros2_ws/src \
+    ros2:jazzy-dev
+```
+
+#### X11
+```bash
+xhost +local:docker
+
+docker run --rm -it \
+    --name ros2_dev \
+    --network host \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+    -v /dev/dri:/dev/dri \
+    -v $(pwd)/workspace:/ros2_ws/src \
+    ros2:jazzy-dev
 ```
 
 ### Troubleshooting GUI Issues
 
-| Issue | Solution |
-|-------|----------|
-| `cannot open display` | Run `xhost +local:docker` on host |
-| `No protocol specified` | Ensure DISPLAY variable is set correctly |
-| Black screen in RViz | Add `-v /dev/dri:/dev/dri` for GPU access |
-| Wayland not working | Try XWayland: set `DISPLAY=:0` |
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| `cannot open display` | X server access denied | Run `xhost +local:docker` on host |
+| `Authorization required, but no authorization protocol specified` | Missing X auth | Run `xhost +local:docker` on host |
+| `could not connect to display :1` | Wrong DISPLAY or no xhost | Check `echo $DISPLAY` and run xhost |
+| `No Qt platform plugin could be initialized` | Display not accessible | Ensure X11 socket is mounted and xhost is set |
+| `wrong permissions on runtime directory /tmp` | Cosmetic warning | Can be ignored, doesn't affect functionality |
+| Black screen in RViz | No GPU access | Add `-v /dev/dri:/dev/dri` to mount GPU |
+| Slow rendering | Software rendering | Ensure `/dev/dri` is mounted for hardware acceleration |
 
-### GPU Acceleration (NVIDIA)
+### GPU Acceleration
 
-For NVIDIA GPU support, use nvidia-container-toolkit:
-
+#### Intel/AMD (Mesa)
 ```bash
-# Install nvidia-container-toolkit first, then:
+# Already configured in docker-compose.yaml
+# Just ensure /dev/dri is mounted
+docker run --rm -it \
+    -v /dev/dri:/dev/dri \
+    ...
+```
+
+#### NVIDIA
+```bash
+# 1. Install nvidia-container-toolkit
+# Arch: yay -S nvidia-container-toolkit
+# Ubuntu: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+
+# 2. Run with GPU support
 docker run --rm -it \
     --gpus all \
     -e DISPLAY=$DISPLAY \
@@ -219,6 +314,16 @@ docker run --rm -it \
     --network host \
     ros2:jazzy-dev
 ```
+
+### Environment Variables Reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DISPLAY` | `:1` (Wayland) `:0` (X11) | X11 display to use |
+| `ROS_DOMAIN_ID` | `0` | ROS2 domain for multi-robot setups |
+| `ROS_LOCALHOST_ONLY` | `0` | Restrict to localhost (deprecated) |
+| `START_SSH` | `false` | Start SSH server on container start |
+| `START_CODE_SERVER` | `false` | Start VS Code Server on container start |
 
 ## License
 
